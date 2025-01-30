@@ -134,15 +134,15 @@ def local_outlier_factor(
         n_neighbors=n_neighbors, contamination=contamination, novelty=False
     )
     data_copy["outlier"] = lof.fit_predict(features)
-    data_copy["anomaly_score"] = -lof.negative_outlier_factor_
+    data_copy["anomaly_score"] = lof.negative_outlier_factor_
 
-    # Assign binary outlier labels (-1 for outlier, 1 for inlier) based on quantile threshold
-    data_copy["outlier"] = np.where(
-        data_copy["anomaly_score"]
-        > data_copy["anomaly_score"].quantile(1 - contamination),
-        -1,
-        1,
-    )
+    ## Assign binary outlier labels (-1 for outlier, 1 for inlier) based on quantile threshold
+    #data_copy["outlier"] = np.where(
+    #    data_copy["anomaly_score"]
+    #    > data_copy["anomaly_score"].quantile(1 - contamination),
+    #    -1,
+    #    1,
+    #)
 
     # Separate detected outliers
     outliers = data_copy[data_copy["outlier"] == -1]

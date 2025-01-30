@@ -252,11 +252,11 @@ def plot_roc_curves(
             )
             continue
 
-        # 🔹 Flip scores for IF & ABOD (lower scores indicate stronger anomalies)
-        if name in ["IF", "ABOD"]:
+        # Flip scores for all (lower scores indicate stronger anomalies)
+        if name in ["IF", "LOF", "ABOD"]:
             df[prediction_col] = -df[prediction_col]  # Invert anomaly scores
 
-        # 🔹 Normalize scores to ensure consistency
+        # Normalize scores to ensure consistency
         df[prediction_col] = (df[prediction_col] - df[prediction_col].min()) / (
             df[prediction_col].max() - df[prediction_col].min()
         )
@@ -334,13 +334,13 @@ def calculate_roc_auc(
             )
             continue
 
-        # 🔹 Flip anomaly scores for IF & ABOD (since lower values indicate stronger anomalies)
-        if name in ["IF", "ABOD"]:
+        # Flip anomaly scores for all (since lower values indicate stronger anomalies)
+        if name in ["IF", "LOF", "ABOD"]:
             df[prediction_col] = -df[
                 prediction_col
             ]  # Invert anomaly scores **before normalization**
 
-        # 🔹 Normalize scores to ensure consistency across models
+        # Normalize scores to ensure consistency across models
         min_val, max_val = df[prediction_col].min(), df[prediction_col].max()
         if max_val > min_val:  # Avoid division by zero
             df[prediction_col] = (df[prediction_col] - min_val) / (max_val - min_val)
@@ -397,13 +397,13 @@ def calculate_f_score(
         # Label as '1' (positive) if the outlier is close to a known deposit, else '0' (negative)
         df["is_near_deposit"] = (distances != np.inf).astype(int)
 
-        # 🔹 Flip anomaly scores for IF & ABOD (since lower values indicate stronger anomalies)
-        if name in ["IF", "ABOD"]:
+        # Flip anomaly scores for all (since lower values indicate stronger anomalies)
+        if name in ["IF", "LOF", "ABOD"]:
             df[prediction_col] = -df[
                 prediction_col
             ]  # Flip scores **before** normalization
 
-        # 🔹 Normalize scores to ensure consistency across models
+        # Normalize scores to ensure consistency across models
         min_val, max_val = df[prediction_col].min(), df[prediction_col].max()
         if max_val > min_val:  # Avoid division by zero
             df[prediction_col] = (df[prediction_col] - min_val) / (max_val - min_val)
