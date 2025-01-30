@@ -150,7 +150,7 @@ def local_outlier_factor(
     return data_copy, outliers
 
 
-def ABOD(
+def abod(
     data: pd.DataFrame, feature_columns: list = None, scale_data: bool = False
 ) -> pd.DataFrame:
     """

@@ -165,7 +165,7 @@ def plot_scores(
     num_sets = len(score_dicts)
 
     # Create figure with dynamic subplots if multiple sets exist
-    fig, axes = plt.subplots(1, num_sets, figsize=(6 * num_sets, 5), sharey=False)
+    _, axes = plt.subplots(1, num_sets, figsize=(6 * num_sets, 5), sharey=False)
 
     if num_sets == 1:
         axes = [axes]  # Ensure it's iterable
