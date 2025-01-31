@@ -1,12 +1,136 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 from scipy.spatial import cKDTree
 from sklearn.metrics import roc_auc_score
 from scipy.stats import f_oneway
 from sklearn.metrics import mutual_info_score
 from sklearn.metrics import roc_curve, auc
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+
+def generate_pairplot(df: pd.DataFrame, elements: list, hue: str = None, height: float = 1.5):
+    """
+    Generates a pairplot for selected geochemical elements with standardized scaling.
+
+    Parameters:
+    df (pd.DataFrame): The dataset containing geochemical data.
+    elements (list): List of column names (elements) to include in the pairplot.
+    hue (str, optional): Column name to use for color grouping (e.g., rock type).
+
+    Returns:
+    None (displays the plot)
+    """
+    # Ensure selected columns exist in the dataframe
+    available_cols = [col for col in elements if col in df.columns]
+
+    if not available_cols:
+        raise ValueError("None of the selected elements are in the dataframe.")
+
+    # Select numeric data only
+    selected_df = df[available_cols].select_dtypes(include=["number"])
+
+    # Apply StandardScaler (Z-score normalization)
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(selected_df)
+
+    # Convert back to DataFrame for plotting
+    scaled_df = pd.DataFrame(scaled_data, columns=selected_df.columns)
+
+    # Generate pairplot
+    sns.pairplot(scaled_df, hue=hue, diag_kind="kde", corner=True, height=height)
+    plt.show()
+
+
+def generate_pca(df: pd.DataFrame, n_components: int = 2, plot: bool = True):
+    """
+    Performs PCA on a geochemical dataset, returns PC1 scores, and plots PC1 vs PC2.
+
+    Parameters:
+    df (pd.DataFrame): The dataset containing geochemical data (numeric features only).
+    n_components (int): Number of PCA components to compute (default is 2).
+    plot (bool): Whether to plot PC1 vs PC2 (default: True).
+
+    Returns:
+    tuple: (PC Scores DataFrame, Top 5 Contributing Features to PC1)
+    """
+    # Select numeric columns only
+    numeric_df = df.select_dtypes(include=["number"])
+
+    # Standardize data
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(numeric_df)
+
+    # Perform PCA
+    pca = PCA(n_components=n_components)
+    principal_components = pca.fit_transform(scaled_data)
+
+    # Extract PC loadings (feature importance)
+    pc1_loadings = pd.Series(pca.components_[0], index=numeric_df.columns)
+    pc2_loadings = pd.Series(pca.components_[1], index=numeric_df.columns)
+
+    # Get the top 5 contributing features (absolute values sorted)
+    top_5_features1 = pc1_loadings.abs().nlargest(5).index.tolist()
+    top_5_features2 = pc2_loadings.abs().nlargest(5).index.tolist()
+
+    # Create PCA scores DataFrame
+    pc_scores_df = pd.DataFrame(
+        {
+            "Sample": df.index,
+            "PC1": principal_components[:, 0],
+            "PC2": principal_components[:, 1],
+        }
+    )
+
+    # Plot PC1 vs PC2 if enabled
+    if plot:
+        plt.figure(figsize=(8, 6))
+        sns.scatterplot(x=pc_scores_df["PC1"], y=pc_scores_df["PC2"])
+        plt.xlabel("Principal Component 1")
+        plt.ylabel("Principal Component 2")
+        plt.title("PCA Scatter Plot (PC1 vs PC2)")
+        plt.show()
+
+    return pc_scores_df, top_5_features1, top_5_features2
+
+
+def plot_correlation_heatmap(
+    df: pd.DataFrame,
+    feature_columns: list,
+    figsize: tuple = (10, 8),
+    annot: bool = True,
+):
+    """
+    Plots a correlation heatmap for selected features with the upper triangle masked.
+
+    Parameters:
+    df (pd.DataFrame): The dataset containing geochemical data.
+    feature_columns (list): List of feature columns to include in the correlation analysis.
+    figsize (tuple, optional): Size of the figure (default: (10, 8)).
+    annot (bool, optional): Whether to annotate the correlation values (default: True).
+
+    Returns:
+    None (Displays the heatmap)
+    """
+    # Select only the relevant columns
+    corr_matrix = df[feature_columns].corr()
+
+    # Create a mask to hide the upper triangle
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+
+    # Create the heatmap
+    plt.figure(figsize=figsize)
+    sns.heatmap(
+        corr_matrix, mask=mask, cmap="coolwarm", annot=annot, fmt=".2f", linewidths=0.5
+    )
+
+    # Add title
+    plt.title("Correlation Heatmap")
+    plt.show()
 
 
 # Define plotting function for the outlier detection model results
