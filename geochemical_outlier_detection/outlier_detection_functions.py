@@ -7,10 +7,34 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 
 
+def unsupervised_binary_classification(anomaly_scores, z_score: float = 3.5):  # Used to automatically classify the data points as inliers or outliers
+    """
+    Classifies data points as inliers or outliers using the Modified Z-Score method
+    based on the Median Absolute Deviation (MAD).
+
+    Outliers are identified as points with a modified Z-score greater than 3.5.
+
+    Args:
+        anomaly_scores (np.array): Computed anomaly scores
+        z_score (float): Modified Z-score threshold for outlier classification (default: 3.5)
+
+    Returns:
+        np.array: Binary outlier classification (-1 outliers, 1 inliers)
+    """
+    median_score = np.median(anomaly_scores)
+    mad = np.median(np.abs(anomaly_scores - median_score))
+    modified_z_scores = 0.6745 * (anomaly_scores - median_score) / mad
+
+    # Classify as outliers if modified z-score exceeds 3.5
+    outlier_mask = np.abs(modified_z_scores) > z_score
+    classifications = np.where(outlier_mask, -1, 1)
+
+    return classifications
+
+
 def isolation_forest(
     data: pd.DataFrame,
     feature_columns: list = None,
-    contamination: float = 0.05,
     random_state: int = 42,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -20,7 +44,6 @@ def isolation_forest(
     - data (pd.DataFrame): The input geochemical dataset.
     - feature_columns (list): List of column names to be used as features.
                               If None, all numerical columns will be used.
-    - contamination (float): The proportion of outliers in the dataset (default: 0.05).
     - random_state (int): Random seed for reproducibility (default: 42).
 
     Returns:
@@ -47,8 +70,6 @@ def isolation_forest(
 
     if not all(col in data_copy.columns for col in feature_columns):
         raise ValueError("Some feature columns are not present in the dataset.")
-    if not 0 < contamination < 0.5:
-        raise ValueError("Contamination must be between 0 and 0.5.")
 
     # Prepare the data
     features = data_copy[feature_columns].copy()
@@ -58,14 +79,15 @@ def isolation_forest(
         features = features.fillna(features.mean())
 
     # Initialize and fit the Isolation Forest model
-    iso_forest = IsolationForest(contamination=contamination, random_state=random_state)
+    iso_forest = IsolationForest(random_state=random_state)
     iso_forest.fit(features)
 
-    # Add the binary classification to the copied DataFrame
-    data_copy["outlier"] = iso_forest.predict(features)
+    # Compute decision function scores
+    anomaly_scores = iso_forest.decision_function(features)
 
-    # Add the continuous anomaly scores to the copied DataFrame
-    data_copy["anomaly_score"] = iso_forest.decision_function(features)
+    # Use robust classification
+    data_copy["outlier"] = unsupervised_binary_classification(anomaly_scores)
+    data_copy["anomaly_score"] = anomaly_scores
 
     return data_copy
 
@@ -73,9 +95,8 @@ def isolation_forest(
 def local_outlier_factor(
     data: pd.DataFrame,
     feature_columns: list = None,
-    contamination: float = 0.05,
     n_neighbors: int = 20,
-    scale_data: bool = False,  # New argument to enable/disable scaling
+    scale_data: bool = False, 
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Detect outliers in a geochemical dataset using the Local Outlier Factor (LOF) algorithm.
@@ -84,7 +105,6 @@ def local_outlier_factor(
     - data (pd.DataFrame): The input geochemical dataset.
     - feature_columns (list): List of column names to be used as features.
                               If None, all numerical columns will be used.
-    - contamination (float): The proportion of outliers in the dataset (default: 0.05).
     - n_neighbors (int): Number of neighbors to use for LOF (default: 20).
     - scale_data (bool): Whether to scale features using StandardScaler (default: False).
 
@@ -112,8 +132,6 @@ def local_outlier_factor(
 
     if not all(col in data_copy.columns for col in feature_columns):
         raise ValueError("Some feature columns are not present in the dataset.")
-    if not 0 < contamination < 0.5:
-        raise ValueError("Contamination must be between 0 and 0.5.")
 
     # Prepare the data
     features = data_copy[feature_columns].copy()
@@ -128,10 +146,16 @@ def local_outlier_factor(
 
     # Initialize and fit LOF model
     lof = LocalOutlierFactor(
-        n_neighbors=n_neighbors, contamination=contamination, novelty=False
+        n_neighbors=n_neighbors, novelty=False
     )
-    data_copy["outlier"] = lof.fit_predict(features)
-    data_copy["anomaly_score"] = lof.negative_outlier_factor_
+    lof.fit_predict(features)
+
+    # Use negative outlier factor as anomaly scores
+    anomaly_scores = lof.negative_outlier_factor_
+
+    # Use robust classification
+    data_copy["outlier"] = unsupervised_binary_classification(anomaly_scores)
+    data_copy["anomaly_score"] = anomaly_scores
 
     return data_copy
 
@@ -140,7 +164,6 @@ def abod(
     data: pd.DataFrame,
     feature_columns: list = None,
     scale_data: bool = False,
-    contamination: float = 0.05,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Optimized Angle-Based Outlier Detection (ABOD) for geochemical datasets.
@@ -149,7 +172,6 @@ def abod(
     - data (pd.DataFrame): Input dataset.
     - feature_columns (list): Columns to use for features (default: all numerical columns).
     - scale_data (bool): Whether to scale features using StandardScaler (default: False).
-    - contamination (float): The proportion of outliers in the dataset (default: 0.05).
 
     Returns:
     - Tuple[pd.DataFrame, pd.DataFrame]:
@@ -206,11 +228,8 @@ def abod(
 
     data_copy["anomaly_score"] = abod_scores
 
-    # Determine threshold based on contamination
-    num_outliers = int(contamination * n_samples)  # Determine number of outliers
-    threshold = np.partition(abod_scores, num_outliers)[num_outliers]  # Find score threshold
-
-    # Assign binary classification (-1 for outliers, 1 for inliers)
-    data_copy["outlier"] = np.where(abod_scores <= threshold, -1, 1)
+    # Instead of manual threshold based on contamination
+    data_copy["outlier"] = unsupervised_binary_classification(abod_scores)
+    data_copy["anomaly_score"] = abod_scores
 
     return data_copy
