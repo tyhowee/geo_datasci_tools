@@ -99,6 +99,9 @@ def plot_outlier_results(
     # Set the overall plot title
     plt.suptitle(plot_title, fontsize=18)
     plt.show()
+    print(
+        f"Classified {len(data[data["outlier"] == -1])} outliers out of {len(data)} samples"
+    )
 
 
 # Define function to spatially plot validation results against all 3 model results
