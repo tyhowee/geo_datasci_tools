@@ -67,10 +67,7 @@ def isolation_forest(
     # Add the continuous anomaly scores to the copied DataFrame
     data_copy["anomaly_score"] = iso_forest.decision_function(features)
 
-    # Separate outliers based on binary classification
-    outliers = data_copy[data_copy["outlier"] == -1]
-
-    return data_copy, outliers
+    return data_copy
 
 
 def local_outlier_factor(
@@ -136,23 +133,15 @@ def local_outlier_factor(
     data_copy["outlier"] = lof.fit_predict(features)
     data_copy["anomaly_score"] = lof.negative_outlier_factor_
 
-    ## Assign binary outlier labels (-1 for outlier, 1 for inlier) based on quantile threshold
-    #data_copy["outlier"] = np.where(
-    #    data_copy["anomaly_score"]
-    #    > data_copy["anomaly_score"].quantile(1 - contamination),
-    #    -1,
-    #    1,
-    #)
-
-    # Separate detected outliers
-    outliers = data_copy[data_copy["outlier"] == -1]
-
-    return data_copy, outliers
+    return data_copy
 
 
 def abod(
-    data: pd.DataFrame, feature_columns: list = None, scale_data: bool = False
-) -> pd.DataFrame:
+    data: pd.DataFrame,
+    feature_columns: list = None,
+    scale_data: bool = False,
+    contamination: float = 0.05,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Optimized Angle-Based Outlier Detection (ABOD) for geochemical datasets.
 
@@ -160,25 +149,24 @@ def abod(
     - data (pd.DataFrame): Input dataset.
     - feature_columns (list): Columns to use for features (default: all numerical columns).
     - scale_data (bool): Whether to scale features using StandardScaler (default: False).
+    - contamination (float): The proportion of outliers in the dataset (default: 0.05).
 
     Returns:
-    - pd.DataFrame: Input dataset with an additional column 'anomaly_score'.
+    - Tuple[pd.DataFrame, pd.DataFrame]:
+        1. DataFrame with additional columns for outlier classification and anomaly score
+        2. DataFrame containing only the detected outliers
     """
-    # Make a copy of the dataset to avoid modifying the original
     data_copy = data.copy()
 
-    # Use all numerical columns if no feature columns are provided
     if feature_columns is None:
         feature_columns = data_copy.select_dtypes(include=[np.number]).columns.tolist()
         if not feature_columns:
             raise ValueError("No numerical columns found to use as features.")
 
-    # Extract features and handle missing values
     features = (
         data_copy[feature_columns].fillna(data_copy[feature_columns].median()).values
     )
 
-    # Apply feature scaling if enabled
     if scale_data:
         scaler = StandardScaler()
         features = scaler.fit_transform(features)
@@ -187,34 +175,22 @@ def abod(
     abod_scores = np.zeros(n_samples)
 
     for query_index in range(n_samples):
-        # Extract the query point
         A = features[query_index]
-
-        # Compute pairwise vectors relative to A
-        T = np.delete(features, query_index, axis=0)  # Exclude the query point
+        T = np.delete(features, query_index, axis=0)
         vectors = T - A
-
-        # Compute pairwise norms and dot products
         norms = np.linalg.norm(vectors, axis=1)
-        valid_indices = norms > 0  # Avoid zero norms (self-pairs)
+        valid_indices = norms > 0
         vectors = vectors[valid_indices]
         norms = norms[valid_indices]
 
-        # Normalize vectors by their norms
         unit_vectors = vectors / norms[:, None]
-
-        # Compute dot products for all pairwise combinations
         dot_products = np.dot(unit_vectors, unit_vectors.T)
-
-        # Compute the weights (1 / norm products)
         norm_products = np.outer(norms, norms)
         weights = 1 / norm_products
 
-        # Compute weighted contributions
         weighted_dot_products = dot_products * weights
         weighted_squared_contributions = weighted_dot_products**2
 
-        # Compute variance of weighted contributions
         weight_sum = np.sum(weights)
         if weight_sum == 0:
             abod_scores[query_index] = float("inf")
@@ -223,13 +199,18 @@ def abod(
             weighted_mean = np.sum(weighted_dot_products) / weight_sum
             abod_scores[query_index] = weighted_mean_squared - (weighted_mean**2)
 
-        # Print progress
         print(
             f"Computed ABOD score for point {query_index + 1} of {n_samples}      {round((query_index/n_samples)*100)}%",
             end="\r",
         )
 
-    # Add anomaly scores to the dataset
     data_copy["anomaly_score"] = abod_scores
+
+    # Determine threshold based on contamination
+    num_outliers = int(contamination * n_samples)  # Determine number of outliers
+    threshold = np.partition(abod_scores, num_outliers)[num_outliers]  # Find score threshold
+
+    # Assign binary classification (-1 for outliers, 1 for inliers)
+    data_copy["outlier"] = np.where(abod_scores <= threshold, -1, 1)
 
     return data_copy
