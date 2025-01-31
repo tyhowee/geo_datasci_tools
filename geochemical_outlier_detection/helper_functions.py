@@ -10,7 +10,6 @@ from sklearn.metrics import roc_curve, auc
 
 
 # Define plotting function for the outlier detection model results
-
 def plot_outlier_results(
     data: pd.DataFrame,
     x_col: str,
@@ -19,13 +18,15 @@ def plot_outlier_results(
     binary_col: str,
     point_size: float = 100,
     score_title: str = "Anomaly Score",
+    score_cbar_title: str = "Anomaly Score (lower = more anomalous)",
     binary_title: str = "Binary Classification",
     plot_title: str = "Outlier Detection Results",
-    cmap: str = "coolwarm",
+    cmap: str = "viridis",  # Changed default to viridis
     binary_colors: dict = None,
 ):
     """
-    Plot the results of outlier detection with a score-based heatmap and binary classification.
+    Plot the results of outlier detection with a sequential colormap for anomaly scores
+    and binary classification. Particularly suitable for geochemical data.
 
     Parameters:
     - data (pd.DataFrame): Input DataFrame containing geospatial and outlier information.
@@ -37,13 +38,13 @@ def plot_outlier_results(
     - score_title (str): Title for the score-based plot (default: "Anomaly Score").
     - binary_title (str): Title for the binary plot (default: "Binary Classification").
     - plot_title (str): Title for the entire figure (default: "Outlier Detection Results").
-    - cmap (str): Colormap for the score plot (default: "coolwarm").
+    - cmap (str): Colormap for the score plot (default: "viridis").
     - binary_colors (dict): Optional custom color map for binary classification
                             (default: {1: "blue", -1: "red"}).
     """
     # Default binary colors if not provided
     if binary_colors is None:
-        binary_colors = {1: "blue", -1: "red"}
+        binary_colors = {1: "#34495E", -1: "#D35400"}
 
     # Check if required columns exist in the data
     for col in [x_col, y_col, score_col, binary_col]:
@@ -59,10 +60,10 @@ def plot_outlier_results(
         data[y_col],
         c=data[score_col],
         cmap=cmap,
-        s=point_size,  # Use point_size here
+        s=point_size,
     )
     cbar1 = fig.colorbar(sc1, ax=axes[0])
-    cbar1.set_label(score_title, fontsize=12)
+    cbar1.set_label(score_cbar_title, fontsize=12)
     axes[0].set_title(score_title, fontsize=14)
     axes[0].set_xlabel(x_col, fontsize=12)
     axes[0].set_ylabel(y_col, fontsize=12)
@@ -73,7 +74,7 @@ def plot_outlier_results(
         data[x_col],
         data[y_col],
         c=data[binary_col].map(binary_colors),
-        s=point_size,  # Use point_size here
+        s=point_size,
         label="Inliers/Outliers",
     )
     axes[1].set_title(binary_title, fontsize=14)
