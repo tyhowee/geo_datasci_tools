@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import time
 
 
 from scipy.spatial import cKDTree
@@ -247,6 +248,9 @@ def plot_validation(
 
     plt.figure(figsize=(10, 8))
 
+    # Store outlier sets per model
+    outlier_sets = {}
+
     # Plot outlier datasets
     for i, (df, name) in enumerate(zip(outlier_datasets, outlier_dataset_names)):
         if binary_col not in df.columns:
@@ -255,6 +259,9 @@ def plot_validation(
         # Filter only outliers (-1)
         outliers = df[df[binary_col] == -1]
 
+        # Store outlier locations as a set of tuples (Longitude, Latitude)
+        outlier_sets[name] = set(zip(outliers[x_col], outliers[y_col]))
+
         plt.scatter(
             outliers[x_col],
             outliers[y_col],
@@ -262,8 +269,32 @@ def plot_validation(
             s=point_size,
             label=name,
             alpha=0.6,
-            # edgecolor="black",
         )
+
+    # Count points in 1, 2, or all 3 models
+    all_outliers = list(outlier_sets.values())
+
+    # Union of all outliers
+    all_points = set().union(*all_outliers)
+
+    # Count occurrences
+    count_1_model = 0
+    count_2_models = 0
+    count_3_models = 0
+
+    for point in all_points:
+        count = sum(point in dataset for dataset in all_outliers)
+        if count == 1:
+            count_1_model += 1
+        elif count == 2:
+            count_2_models += 1
+        elif count == 3:
+            count_3_models += 1
+
+    # Print results
+    print(f"Points detected as outliers by 1 model: {count_1_model}")
+    print(f"Points detected as outliers by 2 models: {count_2_models}")
+    print(f"Points detected as outliers by all 3 models: {count_3_models}")
 
     # Plot validation dataset as yellow stars
     plt.scatter(
@@ -610,3 +641,21 @@ def calculate_mi_score(
         print(f"Mutual Information Score for {name}: {mi_score:.4f}")
 
     return mi_scores
+
+
+def measure_model_execution(data: pd.DataFrame, sample_sizes: list, model: object):
+    times = []
+
+    for size in sample_sizes:
+        sampled_data = data.sample(n=size, random_state=42)  # Ensure reproducibility
+        start_time = time.time()
+
+        # Run ABOD on the sampled dataset
+        model(sampled_data)
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+        times.append((size, execution_time))
+        print(f"Processed {size} samples in {execution_time:.4f} seconds")
+
+    return pd.DataFrame(times, columns=["Number of Samples", "Execution Time (s)"])
