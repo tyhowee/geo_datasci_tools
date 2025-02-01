@@ -656,6 +656,8 @@ def measure_model_execution(data: pd.DataFrame, sample_sizes: list, model: objec
         end_time = time.time()
         execution_time = end_time - start_time
         times.append((size, execution_time))
-        print(f"Processed {size} samples in {execution_time:.4f} seconds")
+        print(
+            f"Processed {size} samples in {execution_time:.4f} seconds using {model.__name__}"
+        )
 
     return pd.DataFrame(times, columns=["Number of Samples", "Execution Time (s)"])
