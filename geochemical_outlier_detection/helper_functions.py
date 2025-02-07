@@ -126,7 +126,7 @@ def plot_correlation_heatmap(
     # Create the heatmap
     plt.figure(figsize=figsize)
     sns.heatmap(
-        corr_matrix, mask=mask, cmap="coolwarm", annot=annot, fmt=".2f", linewidths=0.5
+        corr_matrix, mask=mask, cmap="coolwarm", annot=annot, fmt=".2f", linewidths=0.5, vmin=-1, vmax=1
     )
 
     # Add title
@@ -661,3 +661,150 @@ def measure_model_execution(data: pd.DataFrame, sample_sizes: list, model: objec
         )
 
     return pd.DataFrame(times, columns=["Number of Samples", "Execution Time (s)"])
+
+
+def plot_nan_percentage(df: pd.DataFrame):
+    """
+    Plots a bar chart of the percentage of NaN (missing) values per feature in the given DataFrame.
+
+    Parameters:
+        df (pd.DataFrame): The input DataFrame.
+    """
+    nan_percentage = (df.isna().sum() / len(df)) * 100  # Calculate NaN percentage
+
+    plt.figure(figsize=(12, 4))
+    nan_percentage[nan_percentage > 0].sort_values().plot(
+        kind="bar", color="red", edgecolor="black"
+    )
+    plt.xlabel("Features")
+    plt.ylabel("Percentage of Missing Values (%)")
+    plt.title("Percentage of Missing Values Per Feature")
+    plt.xticks(rotation=90)  # Rotate labels for readability
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.show()
+
+
+def clean_geochemical_data(
+    df: pd.DataFrame, nan_threshold: float = 0.9
+) -> pd.DataFrame:
+    """
+    Removes columns with more than the specified percentage of NaN values and
+    fills remaining NaNs with the median of each column.
+
+    Parameters:
+        df (pd.DataFrame): The input DataFrame containing geochemical data.
+        nan_threshold (float): Percentage threshold for dropping columns (default is 90%).
+
+    Returns:
+        pd.DataFrame: Cleaned DataFrame with NaNs handled.
+    """
+    # Compute percentage of NaN values per column
+    nan_percentage = df.isna().sum() / len(df) * 100
+
+    # Identify columns to drop
+    cols_to_drop = nan_percentage[nan_percentage > nan_threshold * 100].index.tolist()
+
+    # Drop columns with excessive NaNs
+    df_cleaned = df.drop(columns=cols_to_drop)
+
+    # Print dropped columns
+    if cols_to_drop:
+        print(
+            f"Dropped columns (>{nan_threshold*100}% NaNs): {', '.join(cols_to_drop)}"
+        )
+    else:
+        print("No columns were dropped.")
+
+    # Fill remaining NaNs with the median of each column
+    df_cleaned = df_cleaned.fillna(df_cleaned.median(numeric_only=True))
+
+    print("Remaining NaNs filled with column medians.")
+
+    return df_cleaned
+
+
+def mode_percentage(series: pd.Series) -> float:
+    """
+    Computes the percentage of values in a given Pandas Series that are equal to the mode.
+
+    Parameters:
+    series (pd.Series): A column of numerical values.
+
+    Returns:
+    float: The percentage of total values that are the mode.
+    """
+    mode_count = series.value_counts().max()  # Frequency of the mode
+    total_count = series.count()  # Total non-null values
+    return (mode_count / total_count) * 100  # Percentage
+
+
+def plot_mode_percentage(
+    df: pd.DataFrame, feature_columns: list, figsize: tuple = (10, 3)
+):
+    """
+    Computes and plots the percentage of values in each feature that are the mode.
+
+    Parameters:
+    df (pd.DataFrame): The dataset containing geochemical data.
+    feature_columns (list): List of feature columns to analyze.
+    figsize (tuple, optional): Size of the figure (default: (10, 3)).
+
+    Returns:
+    None (Displays the plot)
+    """
+    # Compute the mode percentage per column
+    mode_percentages = df[feature_columns].apply(mode_percentage)
+
+    # Create the plot
+    plt.figure(figsize=figsize)
+    plt.bar(mode_percentages.index, mode_percentages, color="purple", edgecolor="black")
+
+    # Formatting
+    plt.xlabel("Features")
+    plt.ylabel("Mode Percentage (%)")
+    plt.title("Percentage of Values That Are the Mode Per Feature")
+    plt.xticks(rotation=90)
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Show the plot
+    plt.show()
+
+
+def plot_mode_median(df: pd.DataFrame, feature_columns: list, figsize: tuple = (6, 5)):
+    """
+    Plots the mode and median values of each feature in a dataset as subplots.
+
+    Parameters:
+    df (pd.DataFrame): The dataset containing geochemical data.
+    feature_columns (list): List of feature columns to analyze.
+    figsize (tuple, optional): Size of the figure (default: (6, 5)).
+
+    Returns:
+    None (Displays the plots)
+    """
+    # Compute mode (first mode value) and median for each feature
+    mode_values = df[feature_columns].mode().iloc[0]
+    median_values = df[feature_columns].median()
+
+    # Create subplots
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=figsize, sharex=True)
+
+    # Plot Mode
+    axes[0].bar(mode_values.index, mode_values, color="steelblue", edgecolor="black")
+    axes[0].set_ylabel("Mode Value")
+    axes[0].set_title("Mode of Each Feature in the Dataset")
+    axes[0].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Plot Median
+    axes[1].bar(median_values.index, median_values, color="darkred", edgecolor="black")
+    axes[1].set_xlabel("Features")
+    axes[1].set_ylabel("Median Value")
+    axes[1].set_title("Median of Each Feature in the Dataset")
+    axes[1].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Rotate x-axis labels for readability
+    plt.xticks(rotation=90)
+
+    # Adjust layout and show
+    plt.tight_layout()
+    plt.show()
