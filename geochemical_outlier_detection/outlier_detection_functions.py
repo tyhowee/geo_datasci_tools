@@ -7,7 +7,7 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 
 
-def unsupervised_binary_classification(anomaly_scores, z_score: float = 3.5):  # Used to automatically classify the data points as inliers or outliers
+def unsupervised_binary_classification(anomaly_scores, z_score: float = 10):  # Used to automatically classify the data points as inliers or outliers
     """
     Classifies data points as inliers or outliers using the Modified Z-Score method
     based on the Median Absolute Deviation (MAD).

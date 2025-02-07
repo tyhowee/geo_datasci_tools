@@ -685,39 +685,48 @@ def plot_nan_percentage(df: pd.DataFrame):
 
 
 def clean_geochemical_data(
-    df: pd.DataFrame, nan_threshold: float = 0.9
+    df: pd.DataFrame, nan_threshold: float = 0.9, mode_threshold: float = 0.4
 ) -> pd.DataFrame:
     """
-    Removes columns with more than the specified percentage of NaN values and
-    fills remaining NaNs with the median of each column.
+    Cleans geochemical data by:
+    - Removing columns with more than `nan_threshold` percentage of NaN values.
+    - Removing columns where the most frequent value (mode) appears in more than `mode_threshold` percentage of rows.
+    - Filling remaining NaNs with the median of each column.
 
     Parameters:
         df (pd.DataFrame): The input DataFrame containing geochemical data.
-        nan_threshold (float): Percentage threshold for dropping columns (default is 90%).
+        nan_threshold (float): Percentage threshold for dropping columns due to NaNs (default: 90%).
+        mode_threshold (float): Percentage threshold for dropping columns due to mode dominance (default: 90%).
 
     Returns:
         pd.DataFrame: Cleaned DataFrame with NaNs handled.
     """
     # Compute percentage of NaN values per column
-    nan_percentage = df.isna().sum() / len(df) * 100
+    nan_percentage = df.isna().sum() / len(df)
+    cols_to_drop = nan_percentage[nan_percentage > nan_threshold].index.tolist()
 
-    # Identify columns to drop
-    cols_to_drop = nan_percentage[nan_percentage > nan_threshold * 100].index.tolist()
+    # Compute mode dominance percentage per column
+    mode_dominance = df.apply(
+        lambda col: (
+            col.value_counts(normalize=True).iloc[0] if not col.dropna().empty else 0
+        )
+    )
+    mode_cols_to_drop = mode_dominance[mode_dominance > mode_threshold].index.tolist()
 
-    # Drop columns with excessive NaNs
-    df_cleaned = df.drop(columns=cols_to_drop)
+    # Combine columns to drop
+    all_cols_to_drop = list(set(cols_to_drop + mode_cols_to_drop))
+
+    # Drop columns
+    df_cleaned = df.drop(columns=all_cols_to_drop)
 
     # Print dropped columns
-    if cols_to_drop:
-        print(
-            f"Dropped columns (>{nan_threshold*100}% NaNs): {', '.join(cols_to_drop)}"
-        )
+    if all_cols_to_drop:
+        print(f"Dropped columns: {', '.join(all_cols_to_drop)}")
     else:
         print("No columns were dropped.")
 
     # Fill remaining NaNs with the median of each column
     df_cleaned = df_cleaned.fillna(df_cleaned.median(numeric_only=True))
-
     print("Remaining NaNs filled with column medians.")
 
     return df_cleaned
