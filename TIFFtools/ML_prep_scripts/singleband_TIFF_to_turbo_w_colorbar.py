@@ -91,5 +91,5 @@ def apply_turbo_colormap(input_folder, subfolder_name="RGBA_outputs"):
     print("Processing complete.")
 
 # Example usage
-input_dir = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\ICB_data\50km_faults\avg\product_package"
+input_dir = "/Users/thowe/MinersAI Dropbox/Tyler Howe/AK_sample_project/PROCESSED/processed_data"
 apply_turbo_colormap(input_dir)

@@ -1,5 +1,7 @@
 import os
+import numpy as np
 from osgeo import gdal
+
 
 def check_and_fix_geotiff(input_folder, output_folder):
     """
@@ -11,73 +13,165 @@ def check_and_fix_geotiff(input_folder, output_folder):
         os.makedirs(output_folder)
 
     for file_name in os.listdir(input_folder):
-        if file_name.lower().endswith('.tif') or file_name.lower().endswith('.tiff'):
+        if file_name.lower().endswith((".tif", ".tiff")):
             input_path = os.path.join(input_folder, file_name)
-            
-            # Add "_processed" before the file extension for the output filename
             base_name, ext = os.path.splitext(file_name)
-            output_file_name = f"{base_name}_processed{ext}"
-            output_path = os.path.join(output_folder, output_file_name)
+            output_path = os.path.join(output_folder, f"{base_name}_processed{ext}")
             extent_file_path = os.path.join(output_folder, f"{base_name}_extent.txt")
 
-            # Open the input GeoTIFF file
             ds = gdal.Open(input_path)
             if ds is None:
                 print(f"Could not open {file_name}, skipping...")
                 continue
 
-            # Check CRS and reproject to EPSG:4326 if necessary
+            # Get NoData value
+            band = ds.GetRasterBand(1)
+            nodata_value = band.GetNoDataValue()
+
+            # Check if CRS is EPSG:4326
             crs = ds.GetProjection()
-            target_crs = 'EPSG:4326'
-            reprojected_ds_path = None
-            converted_ds_path = None
-            if target_crs not in crs:
+            current_ds = ds
+            if "EPSG:4326" not in crs:
                 print(f"{file_name}: Reprojecting to EPSG:4326...")
-                warp_options = gdal.WarpOptions(dstSRS=target_crs)
                 reprojected_ds_path = f"/vsimem/{base_name}_reprojected.tif"
-                reprojected_ds = gdal.Warp(reprojected_ds_path, ds, options=warp_options)
-                if reprojected_ds is None:
-                    print(f"{file_name}: Failed to reproject to EPSG:4326, skipping...")
+                current_ds = gdal.Warp(
+                    reprojected_ds_path,
+                    ds,
+                    options=gdal.WarpOptions(
+                        dstSRS="EPSG:4326",
+                        format="GTiff",
+                        creationOptions=["COMPRESS=LZW"],
+                    ),
+                )
+                if current_ds is None:
+                    print(f"{file_name}: Failed to reproject, skipping...")
                     continue
-                ds = reprojected_ds
 
-            # Check band count and data type for 8-bit RGBA
-            band_count = ds.RasterCount
-            data_type = ds.GetRasterBand(1).DataType
-            if band_count != 4 or data_type != gdal.GDT_Byte:
-                print(f"{file_name}: Converting to 8-bit RGBA...")
-                translate_options = gdal.TranslateOptions(format='GTiff', outputType=gdal.GDT_Byte, creationOptions=["COMPRESS=LZW"])
-                converted_ds_path = f"/vsimem/{base_name}_converted.tif"
-                converted_ds = gdal.Translate(converted_ds_path, ds, options=translate_options)
-                if converted_ds is None:
-                    print(f"{file_name}: Failed to convert to 8-bit RGBA, skipping...")
-                    continue
-                ds = converted_ds
+            num_bands = current_ds.RasterCount
 
-            # Export the corrected GeoTIFF with LZW compression
-            print(f"{file_name}: Saving as {output_file_name} with LZW compression...")
-            gdal.Translate(output_path, ds, creationOptions=["COMPRESS=LZW"])
+            if num_bands == 1:
+                print(
+                    f"{file_name}: Converting singleband to normalized RGBA while preserving transparency..."
+                )
+                rgba_ds_path = f"/vsimem/{base_name}_rgba.tif"
+                driver = gdal.GetDriverByName("GTiff")
+                rgba_ds = driver.Create(
+                    rgba_ds_path,
+                    current_ds.RasterXSize,
+                    current_ds.RasterYSize,
+                    4,
+                    gdal.GDT_Byte,
+                    options=["COMPRESS=LZW"],
+                )
+                rgba_ds.SetGeoTransform(current_ds.GetGeoTransform())
+                rgba_ds.SetProjection(current_ds.GetProjection())
 
-            # Extract and write extent to a .txt file
-            geo_transform = ds.GetGeoTransform()
+                # Read singleband data
+                band_data = current_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+
+                # Determine NoData mask
+                if nodata_value is not None:
+                    nodata_mask = band_data == nodata_value
+                else:
+                    nodata_mask = np.isnan(band_data) | (
+                        band_data < 0
+                    )  # Default handling
+
+                # Normalize band values to range 0-255
+                valid_mask = ~nodata_mask
+                if np.any(valid_mask):  # Avoid division by zero
+                    min_val, max_val = np.min(band_data[valid_mask]), np.max(
+                        band_data[valid_mask]
+                    )
+                    if min_val != max_val:  # Avoid zero division
+                        band_data[valid_mask] = (
+                            (band_data[valid_mask] - min_val) / (max_val - min_val)
+                        ) * 255
+
+                # Convert NaNs and NoData values to 0 for proper display
+                band_data[nodata_mask] = 0
+                band_data = np.clip(band_data, 0, 255).astype(np.uint8)
+
+                # Generate alpha band (0 for NoData, 255 for valid pixels)
+                alpha_band = np.where(nodata_mask, 0, 255).astype(np.uint8)
+
+                # Write RGBA bands
+                rgba_ds.GetRasterBand(1).WriteArray(band_data)  # Red
+                rgba_ds.GetRasterBand(2).WriteArray(band_data)  # Green
+                rgba_ds.GetRasterBand(3).WriteArray(band_data)  # Blue
+                rgba_ds.GetRasterBand(4).WriteArray(alpha_band)  # Transparency
+
+                current_ds = rgba_ds
+
+            elif num_bands == 3:
+                print(
+                    f"{file_name}: Adding alpha channel to RGB while preserving transparency..."
+                )
+                rgba_ds_path = f"/vsimem/{base_name}_rgba.tif"
+                driver = gdal.GetDriverByName("GTiff")
+                rgba_ds = driver.Create(
+                    rgba_ds_path,
+                    current_ds.RasterXSize,
+                    current_ds.RasterYSize,
+                    4,
+                    gdal.GDT_Byte,
+                    options=["COMPRESS=LZW"],
+                )
+                rgba_ds.SetGeoTransform(current_ds.GetGeoTransform())
+                rgba_ds.SetProjection(current_ds.GetProjection())
+
+                # Copy RGB bands
+                for i in range(3):
+                    band_data = current_ds.GetRasterBand(i + 1).ReadAsArray()
+                    rgba_ds.GetRasterBand(i + 1).WriteArray(band_data)
+
+                # Use NoData mask for alpha
+                alpha_band = np.where(nodata_mask, 0, 255).astype(np.uint8)
+                rgba_ds.GetRasterBand(4).WriteArray(alpha_band)  # Transparency
+
+                current_ds = rgba_ds
+
+            elif num_bands >= 4:
+                print(
+                    f"{file_name}: Image already has 4 bands, ensuring LZW compression..."
+                )
+
+                # Ensure transparency is properly retained (no modification needed)
+                rgba_ds_path = f"/vsimem/{base_name}_rgba.tif"
+                driver = gdal.GetDriverByName("GTiff")
+                rgba_ds = driver.CreateCopy(
+                    rgba_ds_path, current_ds, options=["COMPRESS=LZW"]
+                )
+
+                current_ds = rgba_ds
+
+            # Save with LZW compression
+            print(f"{file_name}: Saving with LZW compression...")
+            gdal.Translate(
+                output_path,
+                current_ds,
+                options=gdal.TranslateOptions(creationOptions=["COMPRESS=LZW"]),
+            )
+
+            # Write extent
+            geo_transform = current_ds.GetGeoTransform()
             min_x = geo_transform[0]
             max_y = geo_transform[3]
-            max_x = min_x + geo_transform[1] * ds.RasterXSize
-            min_y = max_y + geo_transform[5] * ds.RasterYSize
-            extent_json = [[min_x, min_y], [max_x, max_y]]
-            with open(extent_file_path, 'w') as extent_file:
-                extent_file.write(str(extent_json))
-            print(f"{file_name}: Extent written to {extent_file_path}")
+            max_x = min_x + geo_transform[1] * current_ds.RasterXSize
+            min_y = max_y + geo_transform[5] * current_ds.RasterYSize
 
-            # Clean up in-memory datasets
-            if reprojected_ds_path:
+            with open(extent_file_path, "w") as extent_file:
+                extent_file.write(str([[min_x, min_y], [max_x, max_y]]))
+
+            # Cleanup
+            if current_ds != ds:
                 gdal.Unlink(reprojected_ds_path)
-            if converted_ds_path:
-                gdal.Unlink(converted_ds_path)
+            ds = None
+            current_ds = None
 
-            ds = None  # Close the dataset to release resources
 
 if __name__ == "__main__":
-    input_folder = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\ICB_data\geospatial_data\mapbox_tiffs"
+    input_folder = "/Users/thowe/MinersAI Dropbox/Tyler Howe/AK_sample_project/PROCESSED/processed_data"
     output_folder = input_folder
     check_and_fix_geotiff(input_folder, output_folder)
+    print("Done processing GeoTIFFs.")
