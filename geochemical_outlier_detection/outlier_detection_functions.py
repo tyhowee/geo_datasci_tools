@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import cupy as cp
 from typing import Tuple
 
 from sklearn.ensemble import IsolationForest
