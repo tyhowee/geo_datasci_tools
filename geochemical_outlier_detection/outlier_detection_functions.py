@@ -164,9 +164,9 @@ def local_outlier_factor(
 def abod(
     data: pd.DataFrame,
     feature_columns: list = None,
-    scale_data: bool = False,
-    use_knn: bool = False,  # Toggle k-NN ABOD
-    k_neighbors: int = 20,  # Number of neighbors for k-NN ABOD
+    scale_data: bool = True,  # Default: True for better consistency
+    use_knn: bool = False,
+    k_neighbors: int = 20,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Optimized Angle-Based Outlier Detection (ABOD) for geochemical datasets.
@@ -174,7 +174,7 @@ def abod(
     Parameters:
     - data (pd.DataFrame): Input dataset.
     - feature_columns (list): Columns to use for features (default: all numerical columns).
-    - scale_data (bool): Whether to scale features using StandardScaler (default: False).
+    - scale_data (bool): Whether to scale features using StandardScaler (default: True).
     - use_knn (bool): Use k-NN based ABOD instead of full dataset (default: False).
     - k_neighbors (int): Number of nearest neighbors to use for k-NN ABOD (default: 20).
 
@@ -194,6 +194,7 @@ def abod(
         data_copy[feature_columns].fillna(data_copy[feature_columns].median()).values
     )
 
+    # Apply StandardScaler for consistent feature scaling
     if scale_data:
         scaler = StandardScaler()
         features = scaler.fit_transform(features)
@@ -201,17 +202,15 @@ def abod(
     n_samples = features.shape[0]
     abod_scores = np.zeros(n_samples)
 
-    # Use KDTree for efficient k-NN lookup if k-NN ABOD is enabled
     if use_knn:
         tree = KDTree(features)
 
     for query_index in range(n_samples):
         A = features[query_index]
 
-        # Select neighbors based on k-NN or full dataset
         if use_knn:
-            _, neighbor_indices = tree.query(A, k=k_neighbors + 1)  # +1 to include self
-            neighbor_indices = neighbor_indices[1:]  # Remove self
+            _, neighbor_indices = tree.query(A, k=k_neighbors + 1)
+            neighbor_indices = neighbor_indices[1:]
         else:
             neighbor_indices = np.delete(np.arange(n_samples), query_index)
 
@@ -232,36 +231,33 @@ def abod(
 
         weight_sum = np.sum(weights)
         if weight_sum == 0:
-            abod_scores[query_index] = np.nan  # Set as NaN for further handling
+            abod_scores[query_index] = np.nan
         else:
             weighted_mean_squared = np.sum(weighted_squared_contributions) / weight_sum
             weighted_mean = np.sum(weighted_dot_products) / weight_sum
             abod_scores[query_index] = weighted_mean_squared - (weighted_mean**2)
 
-        # Fix NaN and Inf values directly after computing each score
         if np.isnan(abod_scores[query_index]):
-            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])  # Use smallest valid score
+            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])
         elif np.isinf(abod_scores[query_index]):
-            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])  # Replace Inf with min valid score
+            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])
 
         print(
             f"Computed ABOD score for point {query_index + 1} of {n_samples}      {round((query_index/n_samples)*100)}%",
             end="\r",
         )
 
-    # Sanitize ABOD scores to remove NaN and Inf values
     abod_scores = np.nan_to_num(abod_scores, nan=np.nanmin(abod_scores))
     abod_scores[np.isinf(abod_scores)] = np.nanmin(abod_scores)
 
-    # Normalize ABOD scores between 0 and 1
-    abod_scores = (abod_scores - np.min(abod_scores)) / (np.max(abod_scores) - np.min(abod_scores))
+    abod_scores /= np.sqrt(n_samples) # Normalize scores based on number of samples
+
+    # Ensure lower scores always indicate anomalies
+    if np.mean(abod_scores) > 0:
+        abod_scores *= -1
 
     # Store in DataFrame
     data_copy["anomaly_score"] = abod_scores
     data_copy["outlier"] = unsupervised_binary_classification(abod_scores)
-
-    # Instead of manual threshold based on contamination
-    data_copy["outlier"] = unsupervised_binary_classification(abod_scores)
-    data_copy["anomaly_score"] = abod_scores
 
     return data_copy

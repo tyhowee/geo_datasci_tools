@@ -397,13 +397,19 @@ def plot_roc_curves(
             )
             continue
 
-        # **Normalize scores before computing ROC**
-        min_val, max_val = df[prediction_col].min(), df[prediction_col].max()
+        # Normalize scores without modifying original dataframe
+        scores = df[prediction_col].copy()
+
+        # **Invert scores since lower values mean more anomalous**
+        scores = -scores
+
+        # Min-max normalization
+        min_val, max_val = scores.min(), scores.max()
         if max_val > min_val:
-            df[prediction_col] = (df[prediction_col] - min_val) / (max_val - min_val)
+            scores = (scores - min_val) / (max_val - min_val)
 
         # Compute ROC curve
-        fpr, tpr, _ = roc_curve(df["is_near_deposit"], df[prediction_col])
+        fpr, tpr, _ = roc_curve(df["is_near_deposit"], scores)
         roc_auc = auc(fpr, tpr)
 
         # Plot ROC curve
