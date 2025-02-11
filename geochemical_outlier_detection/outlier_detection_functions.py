@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial import KDTree
 
 
-def unsupervised_binary_classification(anomaly_scores, z_score: float = 10):  # Used to automatically classify the data points as inliers or outliers
+def unsupervised_binary_classification(anomaly_scores, z_score: float = 3.5):  # Used to automatically classify the data points as inliers or outliers
     """
     Classifies data points as inliers or outliers using the Modified Z-Score method
     based on the Median Absolute Deviation (MAD).
@@ -253,7 +253,12 @@ def abod(
     abod_scores = np.nan_to_num(abod_scores, nan=np.nanmin(abod_scores))
     abod_scores[np.isinf(abod_scores)] = np.nanmin(abod_scores)
 
+    # Normalize ABOD scores between 0 and 1
+    abod_scores = (abod_scores - np.min(abod_scores)) / (np.max(abod_scores) - np.min(abod_scores))
+
+    # Store in DataFrame
     data_copy["anomaly_score"] = abod_scores
+    data_copy["outlier"] = unsupervised_binary_classification(abod_scores)
 
     # Instead of manual threshold based on contamination
     data_copy["outlier"] = unsupervised_binary_classification(abod_scores)

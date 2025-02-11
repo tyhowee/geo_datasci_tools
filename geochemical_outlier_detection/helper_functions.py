@@ -373,20 +373,6 @@ def plot_roc_curves(
     prediction_col="anomaly_score",
     radius=0.01,
 ):
-    """
-    Computes and plots the ROC curves for multiple outlier detection methods
-    based on spatial proximity to known mineral occurrences.
-
-    Parameters:
-    - outlier_datasets (list): List of DataFrames containing outlier data.
-    - outlier_dataset_names (list): Corresponding list of dataset names.
-    - validation_df (pd.DataFrame): DataFrame with known mineral occurrences.
-    - x_col (str): Column name for longitude.
-    - y_col (str): Column name for latitude.
-    - prediction_col (str): Column name for anomaly scores (continuous values).
-    - radius (float): Search radius (in degrees, roughly 1° ≈ 111 km at the equator).
-    """
-
     plt.figure(figsize=(8, 6))  # Set figure size
 
     # Create a KD-Tree for fast spatial lookup of validation points
@@ -411,14 +397,10 @@ def plot_roc_curves(
             )
             continue
 
-        # Flip scores for all (lower scores indicate stronger anomalies)
-        if name in ["IF", "LOF", "ABOD"]:
-            df[prediction_col] = -df[prediction_col]  # Invert anomaly scores
-
-        # Normalize scores to ensure consistency
-        df[prediction_col] = (df[prediction_col] - df[prediction_col].min()) / (
-            df[prediction_col].max() - df[prediction_col].min()
-        )
+        # **Normalize scores before computing ROC**
+        min_val, max_val = df[prediction_col].min(), df[prediction_col].max()
+        if max_val > min_val:
+            df[prediction_col] = (df[prediction_col] - min_val) / (max_val - min_val)
 
         # Compute ROC curve
         fpr, tpr, _ = roc_curve(df["is_near_deposit"], df[prediction_col])
