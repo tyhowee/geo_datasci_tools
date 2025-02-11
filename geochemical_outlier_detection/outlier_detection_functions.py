@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import cupy as cp
 from typing import Tuple
 
 from sklearn.ensemble import IsolationForest
@@ -259,5 +260,86 @@ def abod(
     # Store in DataFrame
     data_copy["anomaly_score"] = abod_scores
     data_copy["outlier"] = unsupervised_binary_classification(abod_scores)
+
+    return data_copy
+
+
+def abod_gpu(
+    data: pd.DataFrame,
+    feature_columns: list = None,
+    scale_data: bool = True,
+    use_knn: bool = False,
+    k_neighbors: int = 20,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Optimized Angle-Based Outlier Detection (ABOD) with GPU acceleration (CuPy).
+    """
+    data_copy = data.copy()
+
+    if feature_columns is None:
+        feature_columns = data_copy.select_dtypes(include=[np.number]).columns.tolist()
+        if not feature_columns:
+            raise ValueError("No numerical columns found to use as features.")
+
+    features = (
+        data_copy[feature_columns].fillna(data_copy[feature_columns].median()).values
+    )
+
+    if scale_data:
+        scaler = StandardScaler()
+        features = scaler.fit_transform(features)
+
+    n_samples = features.shape[0]
+    abod_scores = cp.zeros(n_samples)  # Use CuPy array for GPU acceleration
+
+    if use_knn:
+        tree = KDTree(features)
+
+    features_gpu = cp.asarray(features)  # Move data to GPU
+
+    for query_index in range(n_samples):
+        A = features_gpu[query_index]
+
+        if use_knn:
+            _, neighbor_indices = tree.query(cp.asnumpy(A), k=k_neighbors + 1)
+            neighbor_indices = neighbor_indices[1:]  # Exclude the query point itself
+        else:
+            neighbor_indices = cp.delete(cp.arange(n_samples), query_index)
+
+        T = features_gpu[neighbor_indices]
+        vectors = T - A
+        norms = cp.linalg.norm(vectors, axis=1)
+        valid_indices = norms > 0
+        vectors = vectors[valid_indices]
+        norms = norms[valid_indices]
+
+        unit_vectors = vectors / norms[:, None]
+        dot_products = cp.dot(unit_vectors, unit_vectors.T)
+        norm_products = cp.outer(norms, norms)
+        weights = 1 / norm_products
+
+        weighted_dot_products = dot_products * weights
+        weighted_squared_contributions = weighted_dot_products**2
+
+        weight_sum = cp.sum(weights)
+        if weight_sum == 0:
+            abod_scores[query_index] = cp.nan
+        else:
+            weighted_mean_squared = cp.sum(weighted_squared_contributions) / weight_sum
+            weighted_mean = cp.sum(weighted_dot_products) / weight_sum
+            abod_scores[query_index] = weighted_mean_squared - (weighted_mean**2)
+
+    abod_scores = cp.nan_to_num(abod_scores, nan=cp.nanmin(abod_scores))
+    abod_scores[cp.isinf(abod_scores)] = cp.nanmin(abod_scores)
+
+    abod_scores /= cp.sqrt(n_samples)  # Normalize scores based on number of samples
+
+    if cp.mean(abod_scores) > 0:
+        abod_scores *= -1
+
+    data_copy["anomaly_score"] = cp.asnumpy(abod_scores)  # Convert back to NumPy
+    data_copy["outlier"] = unsupervised_binary_classification(
+        data_copy["anomaly_score"]
+    )
 
     return data_copy
