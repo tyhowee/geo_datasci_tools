@@ -47,32 +47,43 @@ def generate_pairplot(df: pd.DataFrame, elements: list, hue: str = None, height:
     plt.show()
 
 
-def generate_pca(df: pd.DataFrame, n_components: int = 2, plot: bool = True):
+def generate_pca(
+    df: pd.DataFrame, feature_columns: list, n_components: int = 2, plot: bool = True
+):
     """
-    Performs PCA on a geochemical dataset, returns PC1 scores, and plots PC1 vs PC2.
+    Performs PCA on a specified subset of features in a geochemical dataset,
+    returns PC1 scores, and plots PC1 vs PC2.
 
     Parameters:
-    df (pd.DataFrame): The dataset containing geochemical data (numeric features only).
+    df (pd.DataFrame): The dataset containing geochemical data.
+    feature_columns (list): List of column names to use for PCA.
     n_components (int): Number of PCA components to compute (default is 2).
     plot (bool): Whether to plot PC1 vs PC2 (default: True).
 
     Returns:
     tuple: (PC Scores DataFrame, Top 5 Contributing Features to PC1)
     """
-    # Select numeric columns only
-    numeric_df = df.select_dtypes(include=["number"])
+    # Ensure feature columns exist in the dataframe
+    valid_columns = [col for col in feature_columns if col in df.columns]
+    if not valid_columns:
+        raise ValueError(
+            "None of the specified feature columns exist in the dataframe."
+        )
+
+    # Select only the specified feature columns
+    selected_data = df[valid_columns]
 
     # Standardize data
     scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(numeric_df)
+    scaled_data = scaler.fit_transform(selected_data)
 
     # Perform PCA
     pca = PCA(n_components=n_components)
     principal_components = pca.fit_transform(scaled_data)
 
     # Extract PC loadings (feature importance)
-    pc1_loadings = pd.Series(pca.components_[0], index=numeric_df.columns)
-    pc2_loadings = pd.Series(pca.components_[1], index=numeric_df.columns)
+    pc1_loadings = pd.Series(pca.components_[0], index=valid_columns)
+    pc2_loadings = pd.Series(pca.components_[1], index=valid_columns)
 
     # Get the top 5 contributing features (absolute values sorted)
     top_5_features1 = pc1_loadings.abs().nlargest(5).index.tolist()
