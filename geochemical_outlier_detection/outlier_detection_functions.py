@@ -5,6 +5,7 @@ from typing import Tuple
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
+from scipy.spatial import KDTree
 
 
 def unsupervised_binary_classification(anomaly_scores, z_score: float = 10):  # Used to automatically classify the data points as inliers or outliers
@@ -164,6 +165,8 @@ def abod(
     data: pd.DataFrame,
     feature_columns: list = None,
     scale_data: bool = False,
+    use_knn: bool = False,  # Toggle k-NN ABOD
+    k_neighbors: int = 20,  # Number of neighbors for k-NN ABOD
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Optimized Angle-Based Outlier Detection (ABOD) for geochemical datasets.
@@ -172,6 +175,8 @@ def abod(
     - data (pd.DataFrame): Input dataset.
     - feature_columns (list): Columns to use for features (default: all numerical columns).
     - scale_data (bool): Whether to scale features using StandardScaler (default: False).
+    - use_knn (bool): Use k-NN based ABOD instead of full dataset (default: False).
+    - k_neighbors (int): Number of nearest neighbors to use for k-NN ABOD (default: 20).
 
     Returns:
     - Tuple[pd.DataFrame, pd.DataFrame]:
@@ -196,9 +201,21 @@ def abod(
     n_samples = features.shape[0]
     abod_scores = np.zeros(n_samples)
 
+    # Use KDTree for efficient k-NN lookup if k-NN ABOD is enabled
+    if use_knn:
+        tree = KDTree(features)
+
     for query_index in range(n_samples):
         A = features[query_index]
-        T = np.delete(features, query_index, axis=0)
+
+        # Select neighbors based on k-NN or full dataset
+        if use_knn:
+            _, neighbor_indices = tree.query(A, k=k_neighbors + 1)  # +1 to include self
+            neighbor_indices = neighbor_indices[1:]  # Remove self
+        else:
+            neighbor_indices = np.delete(np.arange(n_samples), query_index)
+
+        T = features[neighbor_indices]
         vectors = T - A
         norms = np.linalg.norm(vectors, axis=1)
         valid_indices = norms > 0
@@ -215,16 +232,26 @@ def abod(
 
         weight_sum = np.sum(weights)
         if weight_sum == 0:
-            abod_scores[query_index] = float("inf")
+            abod_scores[query_index] = np.nan  # Set as NaN for further handling
         else:
             weighted_mean_squared = np.sum(weighted_squared_contributions) / weight_sum
             weighted_mean = np.sum(weighted_dot_products) / weight_sum
             abod_scores[query_index] = weighted_mean_squared - (weighted_mean**2)
 
+        # Fix NaN and Inf values directly after computing each score
+        if np.isnan(abod_scores[query_index]):
+            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])  # Use smallest valid score
+        elif np.isinf(abod_scores[query_index]):
+            abod_scores[query_index] = np.nanmin(abod_scores[np.isfinite(abod_scores)])  # Replace Inf with min valid score
+
         print(
             f"Computed ABOD score for point {query_index + 1} of {n_samples}      {round((query_index/n_samples)*100)}%",
             end="\r",
         )
+
+    # Sanitize ABOD scores to remove NaN and Inf values
+    abod_scores = np.nan_to_num(abod_scores, nan=np.nanmin(abod_scores))
+    abod_scores[np.isinf(abod_scores)] = np.nanmin(abod_scores)
 
     data_copy["anomaly_score"] = abod_scores
 
