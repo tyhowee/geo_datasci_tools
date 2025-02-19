@@ -19,6 +19,6 @@ def convert_jpg_to_tiff_with_alpha(input_jpg, output_tiff):
 
 
 # Example usage
-input_jpg = "/Users/thowe/MinersAI Dropbox/Science/Geo Data/Chile/Project COBALTERA (Volt)_Chilean Cobalt/Private/Unprocessed/Drilling/01 _Drillhole Collar Map_Las Ligas and Prospera_La Cobaltera.jpg"
-output_tiff = "/Users/thowe/MinersAI Dropbox/Science/Geo Data/Chile/Project COBALTERA (Volt)_Chilean Cobalt/Private/Unprocessed/Drilling/01 _Drillhole Collar Map_Las Ligas and Prospera_La Cobaltera.tif"
+input_jpg = "/Users/thowe/MinersAI Dropbox/Science/Geo Data/Chile/Project COBALTERA (Volt)_Chilean Cobalt/Private/Unprocessed/Drilling/02 _Drillhole Collar Map_Rosa Amelia Mine Area.jpg"
+output_tiff = "/Users/thowe/MinersAI Dropbox/Science/Geo Data/Chile/Project COBALTERA (Volt)_Chilean Cobalt/Private/Unprocessed/Drilling/02 _Drillhole Collar Map_Rosa Amelia Mine Area.tif"
 convert_jpg_to_tiff_with_alpha(input_jpg, output_tiff)
