@@ -14,6 +14,7 @@ from rasterio.warp import (
 )
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
+import contextily as ctx
 
 # 1. Hardcoded file paths
 ML_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\linear_combination_layers\averaged_probability_map_smoothed_thresholded_95th_percentile.tif"
@@ -114,30 +115,35 @@ def main():
     bottom = top + transform_3857[4] * h_3857
     extent = (left, right, bottom, top)
 
-    # Layout with GridSpec + constrained_layout
     plt.rcParams["figure.constrained_layout.use"] = True
     fig = plt.figure(figsize=(12, 8), constrained_layout=True)
 
-    # — Here’s the only change: give the sliders row a small, fixed height (1 unit)
-    # instead of "n" units. You can make that second number even smaller (e.g. 0.5)
-    # if you want them slimmer yet.
+    # set up 2 rows: maps and sliders
     gs0 = fig.add_gridspec(2, 1, height_ratios=[3, 0.5])
-
-    # Maps sub-grid
     gs_maps = gs0[0].subgridspec(1, 2)
     ax1 = fig.add_subplot(gs_maps[0, 0])
     ax2 = fig.add_subplot(gs_maps[0, 1])
-    # Slider sub-grid
+
     gs_sliders = gs0[1].subgridspec(n, 1)
     slider_axes = [fig.add_subplot(gs_sliders[i, 0]) for i in range(n)]
 
-    # Plot ML map
+    # — add a basemap first —
+    prov = ctx.providers
+    basemap_source = prov.get("CartoDB.Positron", prov.get("OpenStreetMap.Mapnik"))
+
+    # optionally pick a zoom that your tiles actually support
+    zoom_level = 14  # 0–19
+
+    ctx.add_basemap(ax1, crs=dst_crs, source=basemap_source, zoom=zoom_level)
+    ctx.add_basemap(ax2, crs=dst_crs, source=basemap_source, zoom=zoom_level)
+
+    # Plot ML map on top
     ml_masked = np.ma.masked_equal(ml_map, 0)
     im1 = ax1.imshow(ml_masked, extent=extent, origin="upper", cmap="viridis")
     ax1.set_title("ML probability (masked within thresholds)")
     fig.colorbar(im1, ax=ax1, label="Probability")
 
-    # Plot stripping map
+    # Plot stripping map on top
     strip_masked = np.ma.masked_where(~(ml_map > 0), strip_map)
     im2 = ax2.imshow(strip_masked, extent=extent, origin="upper", cmap="magma")
     ax2.set_title("Stripping ratio (ML-masked)")
