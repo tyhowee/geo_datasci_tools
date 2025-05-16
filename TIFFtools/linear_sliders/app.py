@@ -37,6 +37,12 @@ labels = {
     protected_areas_path: "Min distance to nearest protected area (m)",
 }
 
+st.set_page_config(
+    page_title="Interactive ML & Stripping Ratio Map",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 
 @st.cache_data
 def load_data():
@@ -173,7 +179,7 @@ def create_figure():
     ml_bool = filtered > 0
     strip_masked = np.ma.masked_where(~ml_bool, stripping_map)
 
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(20, 8))
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(60, 40), dpi=150)
     for ax in (ax1, ax2):
         ax.set_xlim(extent[0], extent[1])
         ax.set_ylim(extent[2], extent[3])
@@ -185,11 +191,11 @@ def create_figure():
         ax.axis("off")
 
     im1 = ax1.imshow(ml_masked, extent=extent, origin="upper", cmap="viridis")
-    ax1.set_title("ML probability (masked)")
+    ax1.set_title("ML probability (masked)", fontsize=40, fontweight="bold", pad=12)
     fig.colorbar(im1, label="Probability", ax=ax1, fraction=0.046, pad=0.04)
 
     im2 = ax2.imshow(strip_masked, extent=extent, origin="upper", cmap="magma")
-    ax2.set_title("Stripping ratio (ML-masked)")
+    ax2.set_title("Stripping ratio (ML-masked)", fontsize=40, fontweight="bold", pad=12)
     fig.colorbar(im2, label="Stripping Ratio", ax=ax2, fraction=0.046, pad=0.04)
 
     plt.tight_layout()
