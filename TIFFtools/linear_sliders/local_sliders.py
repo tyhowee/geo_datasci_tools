@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script to load rasters and display interactive slider plot for linear combination filtering.
 Usage: python linear_combination_sliders_slim.py
