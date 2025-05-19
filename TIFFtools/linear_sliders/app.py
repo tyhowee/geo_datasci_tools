@@ -44,9 +44,12 @@ st.set_page_config(
 )
 
 
-@st.cache_data
-def load_data():
-    # 2. Open reference for grid & metadata
+# --------------------------------------------------------------------
+# 2. Load & cache everything except the thresholds
+# --------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_data_and_reproject():
+    # Open reference for grid & metadata
     with rasterio.open(ML_path) as ref:
         ref_meta = ref.meta.copy()
         H, W = ref.height, ref.width
@@ -94,14 +97,14 @@ def load_data():
     ml_map = reproject_arr(arrays[0], WarpResampling.bilinear)
     infra_maps = [
         reproject_arr(
-            m,
+            arr,
             (
                 WarpResampling.nearest
                 if p == developed_mask_path
                 else WarpResampling.bilinear
             ),
         )
-        for m, p in zip(arrays[1:], paths[1:])
+        for arr, p in zip(arrays[1:], paths[1:])
     ]
     stripping_map = reproject_arr(strip_native, WarpResampling.bilinear)
 
@@ -136,7 +139,19 @@ def load_data():
     )
 
 
-# Load data
+@st.cache_data(show_spinner=False)
+def load_basemap(extent, provider, zoom=10):
+    """
+    Fetch a single basemap image for the given extent & provider,
+    so we can re-use it on every slider change.
+    """
+    xmin, xmax, ymin, ymax = extent
+    # bounds2img returns (img_array, (xmin, xmax, ymin, ymax))
+    img, bbox = ctx.bounds2img(xmin, ymin, xmax, ymax, zoom=zoom, source=provider)
+    return img, bbox
+
+
+# Load & cache heavy data once
 (
     ml_map,
     infra_maps,
@@ -148,9 +163,20 @@ def load_data():
     name_to_label,
     protected_name,
     developed_name,
-) = load_data()
+) = load_data_and_reproject()
 
-# Sidebar sliders for thresholds
+# Choose provider once
+try:
+    provider = ctx.providers.CartoDB.Positron
+except AttributeError:
+    provider = ctx.providers.Stamen.Terrain
+
+# Cache the basemap image & its bounding box
+basemap_img, basemap_bbox = load_basemap(extent, provider, zoom=9)
+
+# --------------------------------------------------------------------
+# 3. Sidebar sliders for thresholds (unchanged)
+# --------------------------------------------------------------------
 st.sidebar.title("Infrastructure thresholds")
 thresholds = {}
 for name, mn, mx in zip(infra_names, infra_mins, infra_maxs):
@@ -164,9 +190,11 @@ for name, mn, mx in zip(infra_names, infra_mins, infra_maxs):
     thresholds[name] = val
 
 
-# Plot function returning a matplotlib figure
+# --------------------------------------------------------------------
+# 4. Plot function using the cached basemap
+# --------------------------------------------------------------------
 def create_figure():
-    # Apply infra thresholds to ML map
+    # Mask the ML map based on thresholds
     filtered = ml_map.copy()
     for name, layer in zip(infra_names, infra_maps):
         thr = thresholds[name]
@@ -179,30 +207,30 @@ def create_figure():
     ml_bool = filtered > 0
     strip_masked = np.ma.masked_where(~ml_bool, stripping_map)
 
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(60, 40), dpi=150)
+    # smaller, faster figure
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(20, 10), dpi=100)
     for ax in (ax1, ax2):
-        ax.set_xlim(extent[0], extent[1])
-        ax.set_ylim(extent[2], extent[3])
-        try:
-            bm = ctx.providers.CartoDB.Positron
-        except AttributeError:
-            bm = ctx.providers.Stamen.Terrain
-        ctx.add_basemap(ax, source=bm, crs="EPSG:3857")
+        xmin, xmax, ymin, ymax = basemap_bbox
+        ax.imshow(basemap_img, extent=basemap_bbox, origin="upper")
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
         ax.axis("off")
 
     im1 = ax1.imshow(ml_masked, extent=extent, origin="upper", cmap="viridis")
-    ax1.set_title("ML probability (masked)", fontsize=40, fontweight="bold", pad=12)
+    ax1.set_title("ML probability (masked)", fontsize=16, fontweight="bold", pad=8)
     fig.colorbar(im1, label="Probability", ax=ax1, fraction=0.046, pad=0.04)
 
     im2 = ax2.imshow(strip_masked, extent=extent, origin="upper", cmap="magma")
-    ax2.set_title("Stripping ratio (ML-masked)", fontsize=40, fontweight="bold", pad=12)
+    ax2.set_title("Stripping ratio (ML-masked)", fontsize=16, fontweight="bold", pad=8)
     fig.colorbar(im2, label="Stripping Ratio", ax=ax2, fraction=0.046, pad=0.04)
 
     plt.tight_layout()
     return fig
 
 
-# Display
+# --------------------------------------------------------------------
+# 5. Display
+# --------------------------------------------------------------------
 st.title("Interactive ML & Stripping Ratio Map")
 fig = create_figure()
 st.pyplot(fig)
