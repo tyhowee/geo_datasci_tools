@@ -9,6 +9,7 @@ from rasterio.warp import (
     reproject,
     Resampling as WarpResampling,
 )
+import geopandas as gpd  # for GeoJSON extent
 import matplotlib.pyplot as plt
 import contextily as ctx
 import streamlit as st
@@ -21,6 +22,9 @@ rail_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\linear_co
 developed_mask_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\linear_combination_layers\infrastructure\town_mask_continuous.tif"
 protected_areas_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\linear_combination_layers\infrastructure\protected_areas.tif"
 stripping_ratio_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\linear_combination_layers\stripping_ratio.tif"
+
+# --- GeoJSON for plotting extent ---
+extent_geojson_path = r"C:\Users\TyHow\MinersAI Dropbox\Tyler Howe\Sibelco_Stuff\DATACUBE\sibelco_ML_pilot_region.geojson"
 
 paths = [
     ML_path,
@@ -72,14 +76,17 @@ def load_data_and_reproject():
             1, out_shape=(H, W), resampling=Resampling.bilinear
         ).astype(float)
 
-    # Compute Web-Mercator transform & shape
-    xmin = ref_meta["transform"][2]
-    ymax = ref_meta["transform"][5]
-    xmax = xmin + ref_meta["transform"][0] * W
-    ymin = ymax + ref_meta["transform"][4] * H
+    # ─── NEW: load GeoJSON and get its bounds in the raster CRS ───
+    gdf = gpd.read_file(extent_geojson_path)
+    if gdf.crs != src_crs:
+        gdf = gdf.to_crs(src_crs)
+    minx, miny, maxx, maxy = gdf.total_bounds
+    # ────────────────────────────────────────────────────────────────
+
+    # Compute Web-Mercator transform & shape using GeoJSON bounds
     dst_crs = "EPSG:3857"
     transform_3857, w_3857, h_3857 = calculate_default_transform(
-        src_crs, dst_crs, W, H, left=xmin, bottom=ymin, right=xmax, top=ymax
+        src_crs, dst_crs, W, H, left=minx, bottom=miny, right=maxx, top=maxy
     )
 
     def reproject_arr(arr, method):
@@ -190,10 +197,19 @@ st.sidebar.title("Infrastructure thresholds")
 thresholds = {}
 for name, mn, mx in zip(infra_names, infra_mins, infra_maxs):
     lbl = name_to_label.get(name, name)
-    if name == developed_name:
-        val = st.sidebar.slider(lbl, int(mn), int(mx), int(mx), step=1)
+    is_protected = name == protected_name
+    is_developed = name == developed_name
+
+    # set slider range and default
+    slider_min = int(mn) if is_developed else float(mn)
+    slider_max = int(mx) if is_developed else float(mx)
+    default_val = slider_min if is_protected else slider_max
+
+    if is_developed:
+        val = st.sidebar.slider(lbl, slider_min, slider_max, default_val, step=1)
     else:
-        val = st.sidebar.slider(lbl, float(mn), float(mx), float(mn))
+        val = st.sidebar.slider(lbl, slider_min, slider_max, default_val)
+
     thresholds[name] = val
 
 thresholds_tuple = tuple(thresholds[name] for name in infra_names)
