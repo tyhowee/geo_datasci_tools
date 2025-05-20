@@ -1,4 +1,6 @@
 import os
+import io
+import base64
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
@@ -234,8 +236,16 @@ def make_figure(thresholds_tuple):
 
 
 # --------------------------------------------------------------------
-# 6. Display
+# 6. Display (embed high-res PNG)
 # --------------------------------------------------------------------
 st.title("Interactive ML & Stripping Ratio Map")
 fig = make_figure(thresholds_tuple)
-st.pyplot(fig)
+# Save to high-res PNG in memory and embed via HTML for crisp display
+buf = io.BytesIO()
+fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+buf.seek(0)
+img_b64 = base64.b64encode(buf.read()).decode()
+st.markdown(
+    f"<img style='max-width: 100%; height: auto;' src='data:image/png;base64,{img_b64}'/>",
+    unsafe_allow_html=True,
+)
