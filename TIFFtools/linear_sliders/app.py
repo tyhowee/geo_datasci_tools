@@ -45,18 +45,18 @@ st.set_page_config(
 
 
 # --------------------------------------------------------------------
-# 2. Load & cache everything except the thresholds
+# 2. Load & cache heavy GIS work once per session
 # --------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def load_data_and_reproject():
-    # Open reference for grid & metadata
+    # Reference for grid & metadata
     with rasterio.open(ML_path) as ref:
         ref_meta = ref.meta.copy()
         H, W = ref.height, ref.width
         src_crs = ref.crs
         src_tf = ref.transform
 
-    # Read & resample all arrays to ref grid
+    # Read & resample arrays to reference grid
     arrays = []
     for p in paths:
         with rasterio.open(p) as src:
@@ -115,7 +115,7 @@ def load_data_and_reproject():
     y_min = y_max + transform_3857.e * h_3857
     extent = (x_min, x_max, y_min, y_max)
 
-    # Prepare slider info
+    # Slider info
     infra_names = [os.path.splitext(os.path.basename(p))[0] for p in paths[1:]]
     infra_mins = [float(np.nanmin(m)) for m in infra_maps]
     infra_maxs = [float(np.nanmax(m)) for m in infra_maps]
@@ -139,19 +139,14 @@ def load_data_and_reproject():
     )
 
 
-@st.cache_data(show_spinner=False)
-def load_basemap(extent, provider, zoom=10):
-    """
-    Fetch a single basemap image for the given extent & provider,
-    so we can re-use it on every slider change.
-    """
+@st.cache_resource(show_spinner=False)
+def load_basemap(extent, provider, zoom=9):
     xmin, xmax, ymin, ymax = extent
-    # bounds2img returns (img_array, (xmin, xmax, ymin, ymax))
     img, bbox = ctx.bounds2img(xmin, ymin, xmax, ymax, zoom=zoom, source=provider)
     return img, bbox
 
 
-# Load & cache heavy data once
+# Load data & basemap
 (
     ml_map,
     infra_maps,
@@ -164,50 +159,60 @@ def load_basemap(extent, provider, zoom=10):
     protected_name,
     developed_name,
 ) = load_data_and_reproject()
-
-# Choose provider once
 try:
     provider = ctx.providers.CartoDB.Positron
 except AttributeError:
     provider = ctx.providers.Stamen.Terrain
-
-# Cache the basemap image & its bounding box
-basemap_img, basemap_bbox = load_basemap(extent, provider, zoom=9)
+basemap_img, basemap_bbox = load_basemap(extent, provider)
 
 # --------------------------------------------------------------------
-# 3. Sidebar sliders for thresholds (unchanged)
+# 3. Downsample for fast plotting
+# --------------------------------------------------------------------
+H_disp, W_disp = basemap_img.shape[:2]
+
+
+def downsample(arr, out_h, out_w):
+    y_factor = max(1, int(np.floor(arr.shape[0] / out_h)))
+    x_factor = max(1, int(np.floor(arr.shape[1] / out_w)))
+    return arr[::y_factor, ::x_factor]
+
+
+ml_preview = downsample(ml_map, H_disp, W_disp)
+strip_preview = downsample(stripping_map, H_disp, W_disp)
+infra_previews = [downsample(m, H_disp, W_disp) for m in infra_maps]
+
+# --------------------------------------------------------------------
+# 4. Sidebar sliders
 # --------------------------------------------------------------------
 st.sidebar.title("Infrastructure thresholds")
 thresholds = {}
 for name, mn, mx in zip(infra_names, infra_mins, infra_maxs):
-    label = name_to_label.get(name, name)
+    lbl = name_to_label.get(name, name)
     if name == developed_name:
-        val = st.sidebar.slider(label, int(mn), int(mx), int(mx), step=1)
-    elif name == protected_name:
-        val = st.sidebar.slider(label, float(mn), float(mx), float(mn))
+        val = st.sidebar.slider(lbl, int(mn), int(mx), int(mx), step=1)
     else:
-        val = st.sidebar.slider(label, float(mn), float(mx), float(mx))
+        val = st.sidebar.slider(lbl, float(mn), float(mx), float(mn))
     thresholds[name] = val
 
+thresholds_tuple = tuple(thresholds[name] for name in infra_names)
+
 
 # --------------------------------------------------------------------
-# 4. Plot function using the cached basemap
+# 5. Cached figure creation
 # --------------------------------------------------------------------
-def create_figure():
-    # Mask the ML map based on thresholds
-    filtered = ml_map.copy()
-    for name, layer in zip(infra_names, infra_maps):
-        thr = thresholds[name]
+@st.cache_data(show_spinner=False)
+def make_figure(thresholds_tuple):
+    thr_vals = thresholds_tuple
+    filtered = ml_preview.copy()
+    for name, base_preview, thr in zip(infra_names, infra_previews, thr_vals):
         if name == protected_name:
-            filtered[layer < thr] = 0
+            filtered[base_preview < thr] = 0
         else:
-            filtered[layer > thr] = 0
-
+            filtered[base_preview > thr] = 0
     ml_masked = np.ma.masked_equal(filtered, 0)
     ml_bool = filtered > 0
-    strip_masked = np.ma.masked_where(~ml_bool, stripping_map)
+    strip_masked = np.ma.masked_where(~ml_bool, strip_preview)
 
-    # smaller, faster figure
     fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(20, 10), dpi=100)
     for ax in (ax1, ax2):
         xmin, xmax, ymin, ymax = basemap_bbox
@@ -229,8 +234,8 @@ def create_figure():
 
 
 # --------------------------------------------------------------------
-# 5. Display
+# 6. Display
 # --------------------------------------------------------------------
 st.title("Interactive ML & Stripping Ratio Map")
-fig = create_figure()
+fig = make_figure(thresholds_tuple)
 st.pyplot(fig)
