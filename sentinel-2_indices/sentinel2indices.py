@@ -20,3 +20,12 @@ def mixed_iron_s2(composite: xr.DataArray) -> xr.DataArray:
     Source: Ge et al. (2020)
     """
     return (composite.sel(band="B06") + composite.sel(band="B07")) / composite.sel(band="B8A")
+
+def ndvi_s2(composite: xr.DataArray) -> xr.DataArray:
+    """
+    Normalized Difference Vegetation Index (Sentinel-2): (band 8 - band 4) / (band 8 + band 4)
+    Source: Rouse et al. (1973)
+    """
+    nir = composite.sel(band="B08")
+    red = composite.sel(band="B04")
+    return (nir - red) / (nir + red)
